@@ -105,14 +105,14 @@ char** split_input(char* in)
 			{
 				outflagappend = true;
 			}
-			free(arguments[k]);
-			free(arguments[k+1]);
+
 			for(int m = k; m < i - 2; m++)
 			{
 				arguments[m] = arguments[m + 2];
 			}
 			i -= 2;
 			k--;
+			arguments[i] = NULL;
 		}
 		else if(strcmp(arguments[k], "<") == 0)
 		{
@@ -123,14 +123,14 @@ char** split_input(char* in)
                         }
 			strcpy(infile, arguments[k+1]);
 			inflag = true;
-			free(arguments[k]);
-			free(arguments[k+1]);
+
 			for(int m = k; m < i - 2; m++)
                         {
                                 arguments[m] = arguments[m + 2];
                         }
 			i -= 2;
 			k--;
+			arguments[i] = NULL;
 		}
 	}
 	return arguments;
@@ -154,11 +154,11 @@ void io_redirect(bool inflag, bool outflag, bool outflagappend, char* infile, ch
 		int fd = -1;
 		if(outflagappend)
 		{
-			fd = open(outfile, O_WRONLY | O_CREAT | O_APPEND);
+			fd = open(outfile, O_WRONLY | O_APPEND, 0644);
 		}
 		else
 		{
-			fd = open(outfile, O_WRONLY | O_CREAT | O_TRUNC);
+			fd = open(outfile, O_WRONLY | O_TRUNC, 0644);
 		}
 		if(fd == -1)
 		{
