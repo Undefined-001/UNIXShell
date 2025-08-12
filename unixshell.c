@@ -17,6 +17,7 @@ char outfile[256] = "";
 bool inflag;
 bool outflag;
 bool outflagappend;
+bool backgroundflag;
 
 int main(int argc, char **argv)
 {
@@ -35,6 +36,7 @@ void loop()
 		inflag = false;
 		outflag = false;
 		outflagappend = false;
+		backgroundflag = false;
 		strcpy(infile, "");
 		strcpy(outfile, "");
 		printf("> ");
@@ -89,7 +91,6 @@ char** split_input(char* in)
 		strcpy(arguments[j], args[j]);
 	}
 	arguments[i] = NULL;
-
 	for(int k = 0; k < i; k++)
 	{
 		if((strcmp(arguments[k], ">")) == 0 || (strcmp(arguments[k], ">>")) == 0)
@@ -133,6 +134,13 @@ char** split_input(char* in)
 			arguments[i] = NULL;
 		}
 	}
+	if(i > 0 && (strcmp(arguments[i - 1], "&") == 0))
+	{
+		backgroundflag = true;
+		i--;
+		arguments[i] = NULL;
+	}
+
 	return arguments;
 }
 
@@ -180,6 +188,24 @@ bool execute(char** args)
 	{
 		return false;
 	}
+	if(strcmp(args[0], "cd") == 0)
+	{
+		if(args[1])
+		{
+			if(chdir(args[1]) != 0)
+			{
+				perror("cd");
+			}
+		}
+		else
+		{
+			if(chdir(getenv("HOME")) != 0)
+			{
+				perror("cd");
+			}
+		}
+		return true;
+	}
 	return launch(args);
 }
 
@@ -206,7 +232,14 @@ bool launch(char** args)
 	else
 	{
 		int status;
-		waitpid(pid, &status, WUNTRACED);
+		if(!backgroundflag)
+		{
+			waitpid(pid, &status, WUNTRACED);
+		}
+		else
+		{
+			printf("Background PID %d\n", pid);
+		}
 	}
 	return true;
 }
