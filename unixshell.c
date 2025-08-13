@@ -12,17 +12,29 @@ char** split_input(char* in);
 bool execute(char** args);
 bool launch(char** args);
 void io_redirect(bool inflag, bool outflag, bool outflagappend, char* infile, char* outfile);
+void sigchld_handler();
+void remove_node(pid_t pid);
+void cleanup_jobs();
 char infile[256] = "";
 char outfile[256] = "";
 bool inflag;
 bool outflag;
 bool outflagappend;
 bool backgroundflag;
-
+int backgroundid;
+struct BackgroundTask
+{
+	int id;
+	char command[256];
+	struct BackgroundTask* next;
+	pid_t pid;
+	bool done;
+};
+struct BackgroundTask* currjob;
 int main(int argc, char **argv)
 {
+	signal(SIGCHLD, sigchld_handler);
 	loop();
-
 	return EXIT_SUCCESS;
 }
 
@@ -31,6 +43,8 @@ void loop()
 	char* in;
 	char** args;
 	bool status = true;
+	backgroundid = 0;
+	currjob = NULL;
 	while(status)
 	{
 		inflag = false;
@@ -178,6 +192,39 @@ void io_redirect(bool inflag, bool outflag, bool outflagappend, char* infile, ch
 	}
 }
 
+void cleanup_jobs()
+{
+	struct BackgroundTask* curr = currjob;
+	while(curr != NULL)
+	{
+		struct BackgroundTask* currnext = curr->next;
+		if(curr->done)
+		{
+			remove_node(curr->pid);
+		}
+		curr = currnext;
+	}
+}
+
+void sigchld_handler()
+{
+	int status;
+	pid_t pid;
+	pid = waitpid(-1, &status, WNOHANG);
+	while (pid > 0)
+	{
+		for(struct BackgroundTask* j = currjob; j != NULL; j = j->next)
+		{
+			if(j->pid == pid)
+			{
+				j->done = true;
+				break;
+			}
+		}
+    		pid = waitpid(-1, &status, WNOHANG);
+	}
+}
+
 bool execute(char** args)
 {
 	if(args[0] == NULL)
@@ -206,7 +253,80 @@ bool execute(char** args)
 		}
 		return true;
 	}
+	if(strcmp(args[0], "jobs") == 0)
+	{
+		for(struct BackgroundTask* j = currjob; j != NULL; j = j->next)
+		{
+			printf("%d %d %s %s\n", j->id, j->pid, j->done ? "Done" : "Running", j->command);
+		}
+		cleanup_jobs();
+		return true;
+	}
+	if(strcmp(args[0], "fg") == 0)
+	{
+		if(!args[1])
+		{
+			perror("fg");
+			return true;
+		}
+		for(struct BackgroundTask* j = currjob; j != NULL; j = j->next)
+		{
+			if(j->id == atoi(args[1]))
+			{
+				int status;
+				waitpid(j->pid, &status, WUNTRACED);
+				remove_node(j->pid);
+				return true;
+			}
+		}
+		printf("Job id %d doesn't exist\n", atoi(args[1]));
+		return true;
+	}
+	if(strcmp(args[0], "kill") == 0)
+	{
+		if(!args[1])
+		{
+			perror("kill");
+			return true;
+		}
+		for(struct BackgroundTask* j = currjob; j != NULL; j = j->next)
+		{
+			if(j->id == atoi(args[1]))
+			{
+				remove_node(j->pid);
+				return true;
+			}
+		}
+		printf("Job id %d doesn't exist\n", atoi(args[1]));
+		return true;
+	}
 	return launch(args);
+}
+
+void remove_node(pid_t pid)
+{
+	struct BackgroundTask* prev = NULL;
+	struct BackgroundTask* curr = currjob;
+	while(curr != NULL && curr->pid != pid)
+	{
+		prev = curr;
+		curr = curr->next;
+	}
+	if(curr == NULL)
+	{
+		perror("remove");
+		return;
+	}
+	if (prev == NULL)
+	{
+	    currjob = curr->next;
+	}
+	else
+	{
+	    prev->next = curr->next;
+	}
+	free(curr);
+
 }
 
 bool launch(char** args)
@@ -238,12 +358,25 @@ bool launch(char** args)
 		}
 		else
 		{
+			backgroundid++;
+			struct BackgroundTask* job = malloc(sizeof(struct BackgroundTask));
+			job->pid = pid;
+			job->done = false;
+			job->command[0] = '\0';
+			for (int i = 0; args[i] != NULL; i++)
+			{
+			    strcat(job->command, args[i]);
+			    strcat(job->command, " ");
+			}
+			job->command[strlen(job->command) - 1] = '\0';
+			job->id = backgroundid;
+			job->next = currjob;
+			currjob = job;
 			printf("Background PID %d\n", pid);
 		}
 	}
 	return true;
 }
-
 
 
 
