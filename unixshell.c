@@ -1,3 +1,6 @@
+#include <readline/readline.h>
+#include <readline/history.h>
+#include <signal.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -37,6 +40,7 @@ struct BackgroundTask* currjob;
 int main(int argc, char **argv)
 {
 	signal(SIGCHLD, sigchld_handler);
+	signal(SIGINT, SIG_IGN);
 	loop();
 	return EXIT_SUCCESS;
 }
@@ -56,8 +60,12 @@ void loop()
 		backgroundflag = false;
 		strcpy(infile, "");
 		strcpy(outfile, "");
-		printf("> ");
 		in = read_input();
+		if(in == NULL)
+		{
+			printf("Exiting shell\n");
+			break;
+		}
 		args = split_input(in);
 		int numpipes = count_pipes(args);
 		if(numpipes == 0)
@@ -119,6 +127,7 @@ bool launch_pipes(char*** commands)
 	        pid_t pid = fork();
 	        if(pid == 0)
         	{
+			signal(SIGINT, SIG_DFL);
 			if(i > 0)
 			{
 				dup2(prev_fd, 0);
@@ -244,7 +253,13 @@ char*** parse_pipes(char** args, int numpipes)
 
 char* read_input()
 {
-	char buffer[1024];
+	char* line = readline("> ");
+	if(line && *line)
+	{
+		add_history(line);
+	}
+	return line;
+	/*char buffer[1024];
 	if(fgets(buffer, sizeof(buffer), stdin) == NULL)
 	{
 		return NULL;
@@ -252,7 +267,7 @@ char* read_input()
 	buffer[strcspn(buffer, "\n")] = '\0';
 	char* buf = malloc(strlen(buffer) + 1);
 	strcpy(buf, buffer);
-	return buf;
+	return buf;*/
 }
 char** split_input(char* in)
 {
@@ -510,6 +525,7 @@ bool launch(char** args)
 	pid_t pid = fork();
 	if(pid == 0)
 	{
+		signal(SIGINT, SIG_DFL);
 		if(outflag || inflag)
         	{
                 	io_redirect(inflag, outflag, outflagappend, infile, outfile);
