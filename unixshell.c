@@ -15,6 +15,9 @@ void io_redirect(bool inflag, bool outflag, bool outflagappend, char* infile, ch
 void sigchld_handler();
 void remove_node(pid_t pid);
 void cleanup_jobs();
+char*** parse_pipes(char** args, int numpipes);
+bool launch_pipes(char*** commands);
+int count_pipes(char** args);
 char infile[256] = "";
 char outfile[256] = "";
 bool inflag;
@@ -56,7 +59,26 @@ void loop()
 		printf("> ");
 		in = read_input();
 		args = split_input(in);
-		status = execute(args);
+		int numpipes = count_pipes(args);
+		if(numpipes == 0)
+		{
+			status = execute(args);
+		}
+		else
+		{
+			char*** commands = parse_pipes(args, numpipes);
+                        launch_pipes(commands);
+			for (int i = 0; commands[i] != NULL; i++)
+			{
+				for (int j = 0; commands[i][j] != NULL; j++)
+				{
+			        	free(commands[i][j]);
+			    	}
+			    	free(commands[i]);
+			}
+			free(commands);
+
+		}
 		free(in);
 		for(int i = 0; args[i] != NULL; i++)
 		{
@@ -64,6 +86,160 @@ void loop()
 		}
 		free(args);
 	}
+}
+
+int count_pipes(char** args)
+{
+	int count = 0;
+	for(int i = 0; args[i] != NULL; i++)
+	{
+		if(strcmp(args[i], "|") == 0)
+		{
+			count++;
+		}
+	}
+	return count;
+}
+
+bool launch_pipes(char*** commands)
+{
+	int prev_fd = -1;
+	for(int i = 0; commands[i] != NULL; i++)
+	{
+		int fd[2];
+		if(commands[i + 1] != NULL)
+		{
+			int s = pipe(fd);
+			if(s < 0)
+			{
+				perror("pipe");
+				return true;
+			}
+		}
+	        pid_t pid = fork();
+	        if(pid == 0)
+        	{
+			if(i > 0)
+			{
+				dup2(prev_fd, 0);
+				close(prev_fd);
+			}
+			if(commands[i + 1] != NULL)
+			{
+				dup2(fd[1], 1);
+				close(fd[0]);
+				close(fd[1]);
+			}
+	        	if(i == 0 && inflag)
+                	{
+                        	io_redirect(inflag, false, false, infile, NULL);
+	                }
+			if(commands[i + 1] == NULL && outflag)
+			{
+				io_redirect(false, outflag, outflagappend, NULL, outfile);
+			}
+        	        int status = execvp(commands[i][0], commands[i]);
+                	if(status == -1)
+	                {
+        	                perror("execvp");
+                	}
+	                exit(EXIT_FAILURE);
+        	}
+	        else if(pid < 0)
+        	{
+                	perror("fork");
+			return true;
+	        }
+        	else
+        	{
+			if(i > 0)
+			{
+				close(prev_fd);
+			}
+			if(commands[i + 1] != NULL)
+			{
+				close(fd[1]);
+				prev_fd = fd[0];
+			}
+                	int status;
+	                if(!backgroundflag)
+        	        {
+                	        waitpid(pid, &status, WUNTRACED);
+                	}
+                	else if(commands[i + 1] == NULL)
+	                {
+        	                backgroundid++;
+                	        struct BackgroundTask* job = malloc(sizeof(struct BackgroundTask));
+                        	job->pid = pid;
+	                        job->done = false;
+        	                job->command[0] = '\0';
+				for(int i = 0; commands[i] != NULL; i++)
+				{
+					for(int j = 0; commands[i][j] != NULL; j++)
+					{
+						strcat(job->command, commands[i][j]);
+			                        strcat(job->command, " ");
+					}
+					if(commands[i + 1] != NULL)
+					{
+						strcat(job->command, "| ");
+					}
+				}
+                        	job->command[strlen(job->command) - 1] = '\0';
+	                        job->id = backgroundid;
+        	                job->next = currjob;
+                	        currjob = job;
+                        	printf("Background PID %d\n", pid);
+	                }
+		}
+	}
+	return true;
+}
+
+char*** parse_pipes(char** args, int numpipes)
+{
+	char*** commands = malloc((numpipes+2)*sizeof(char**));
+	int j = 0;
+	int k = 0;
+	int i;
+	for(i = 0; args[i] != NULL; i++)
+	{
+		if(strcmp(args[i], "|") == 0)
+		{
+			int length = i - k;
+			char** cmd = malloc((length + 1)*sizeof(char*));
+			for(int n = 0; n < length; n++)
+			{
+				cmd[n] = strdup(args[k + n]);
+			}
+			cmd[length] = NULL;
+			commands[j] = cmd;
+			j++;
+			k = i + 1;
+		}
+		if(j == numpipes)
+		{
+			break;
+		}
+	}
+	if(args[k] != NULL)
+	{
+		int length = 0;
+		while (args[k + length] != NULL)
+		{
+			length++;
+		}
+	        char** cmd = malloc((length + 1)*sizeof(char*));
+        	for(int n = 0; n < length; n++)
+        	{
+        		cmd[n] = strdup(args[k + n]);
+	        }
+        	cmd[length] = NULL;
+	        commands[j] = cmd;
+        	j++;
+		commands[j] = NULL;
+	}
+	return commands;
 }
 
 char* read_input()
